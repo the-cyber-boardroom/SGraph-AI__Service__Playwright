@@ -12,7 +12,7 @@ from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls              
 from sg_compute_specs.content_proxy.service.Content_Proxy__Service                    import (BASE_CONTAINERS, BOOT_LOG,
                                                                                             expected_containers, has_cert_init,
                                                                                             parse_ps_names_status, containers_up_status,
-                                                                                            browser_probe_command,
+                                                                                            browser_probe_command, localhost_probe_command,
                                                                                             engine_active, boot_log_failed,
                                                                                             boot_log_complete, boot_log_last_stage,
                                                                                             cert_init_status)
@@ -53,6 +53,21 @@ class test_expected_containers(TestCase):
     def test_no_browsers_when_count_zero(self):                                      # default: no browser containers in the checklist
         exp = expected_containers(Enum__Content_Proxy__Tls.NONE, Enum__Content_Proxy__Edge.NONE)
         assert not any(n.startswith('cp-browser') for n in exp)
+
+
+class test_localhost_probe_command(TestCase):
+
+    def test_ip_or_local_caddy_probes_localhost(self):                              # internal Caddyfile has a localhost site → probe it
+        cmd = localhost_probe_command(True)
+        assert 'https://localhost/' in cmd
+        assert '--resolve' not in cmd
+
+    def test_hostname_stack_probes_the_fqdn_pinned_to_loopback(self):               # caddy hostname stack: NO localhost site → https://localhost/ falsely reports no-response and hangs `wait`
+        cmd = localhost_probe_command(True, 'smart-darwin.sg-compute.sgraph.ai')
+        assert '--resolve smart-darwin.sg-compute.sgraph.ai:443:127.0.0.1' in cmd   # right SNI, resolved to the box
+        assert 'https://smart-darwin.sg-compute.sgraph.ai/' in cmd
+        assert 'localhost' not in cmd
+        assert '-k' in cmd                                                          # tolerate the ACME warm-up cert
 
 
 class test_browser_probe_command(TestCase):

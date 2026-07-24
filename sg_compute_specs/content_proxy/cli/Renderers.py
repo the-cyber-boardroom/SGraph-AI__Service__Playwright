@@ -45,6 +45,11 @@ def render_info(info, console: Console) -> None:
     t.add_column()
     t.add_row('public-ip',  str(getattr(info, 'public_ip', '') or '—'))
     t.add_row('region',     str(getattr(info, 'region', '') or '—'))
+    terminate_at = str(getattr(info, 'terminate_at', '') or '')                      # deadman deadline (boot-script shutdown -h) → time-left
+    if terminate_at:
+        from sg_compute.cli.base.Spec__CLI__Renderers__Base import humanize_time_left
+        remaining = int(getattr(info, 'time_remaining_sec', 0) or 0)
+        t.add_row('time-left',   f'{humanize_time_left(terminate_at, remaining)}  [dim]({terminate_at} — auto-terminate)[/]')
     t.add_row('mode',       getattr(info, 'mode', None).value if hasattr(getattr(info, 'mode', None), 'value') else '—')
     t.add_row('tls',        getattr(info, 'tls',  None).value if hasattr(getattr(info, 'tls',  None), 'value') else '—')
     edge_val = getattr(info, 'edge', None)

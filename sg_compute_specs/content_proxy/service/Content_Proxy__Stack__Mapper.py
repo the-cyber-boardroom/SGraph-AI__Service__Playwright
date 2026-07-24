@@ -7,8 +7,10 @@
 
 from osbot_utils.type_safe.Type_Safe                                                import Type_Safe
 
+from datetime import datetime, timezone
+
 from sg_compute.platforms.ec2.helpers.EC2__Stack__Mapper                            import (tag_value, state_str,
-                                                                                            first_sg_id)
+                                                                                            first_sg_id, uptime_seconds)
 
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge                  import Enum__Content_Proxy__Edge
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Mode                  import Enum__Content_Proxy__Mode
@@ -24,6 +26,19 @@ TAG_HOSTNAME = 'cp:hostname'
 TAG_ACCESS   = 'cp:access-token'                                                    # recoverable for info (like sg va's AccessToken)
 TAG_BROWSERS = 'cp:browser-count'                                                   # N interactive sg-playwright-vnc browsers → per-browser /browser/{i} URLs in info
 TAG_ENGINE   = 'cp:browser-engine'                                                  # chromium | firefox (the fleet's autostarted engine)
+TAG_TERMINATE_AT = 'TerminateAt'                                                    # ISO8601 deadman deadline (mirrors sg va) → list/info time-left
+
+
+def _time_remaining(details: dict) -> tuple:                                        # (terminate_at, seconds_left) from the TerminateAt tag
+    raw = tag_value(details, TAG_TERMINATE_AT) or ''
+    if not raw:
+        return '', 0
+    try:
+        t         = datetime.fromisoformat(raw.replace('Z', '+00:00'))
+        remaining = int((t - datetime.now(timezone.utc)).total_seconds())
+        return raw, max(0, remaining)
+    except Exception:
+        return raw, 0
 
 
 def _int_tag(details: dict, key: str) -> int:                                       # tag value → int (0 when absent/malformed)
@@ -66,4 +81,7 @@ class Content_Proxy__Stack__Mapper(Type_Safe):
             hostname     = tag_value(details, TAG_HOSTNAME)                           ,
             access_token = tag_value(details, TAG_ACCESS)                             ,
             browser_count  = _int_tag(details, TAG_BROWSERS)                          ,
-            browser_engine = tag_value(details, TAG_ENGINE)                           )
+            browser_engine = tag_value(details, TAG_ENGINE)                           ,
+            uptime_seconds     = uptime_seconds(details)                              ,
+            terminate_at       = _time_remaining(details)[0]                          ,
+            time_remaining_sec = _time_remaining(details)[1]                          )

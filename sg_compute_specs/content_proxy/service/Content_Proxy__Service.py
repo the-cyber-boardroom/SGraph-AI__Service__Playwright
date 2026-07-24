@@ -10,6 +10,8 @@ import os
 import time
 import uuid
 
+from datetime import datetime, timedelta, timezone
+
 from typing                                                                         import Optional
 
 from sg_compute.cli.base.Schema__Spec__CLI__Spec                                    import Schema__Spec__CLI__Spec
@@ -28,7 +30,7 @@ from sg_compute_specs.content_proxy.schemas.Schema__Content_Proxy__Stack__Info  
 from sg_compute_specs.content_proxy.service.Content_Proxy__AWS__Client               import Content_Proxy__AWS__Client, STACK_TYPE
 from sg_compute_specs.content_proxy.service.Content_Proxy__Stack__Mapper             import (Content_Proxy__Stack__Mapper, TAG_MODE,
                                                                                             TAG_TLS, TAG_EDGE, TAG_HOSTNAME, TAG_ACCESS,
-                                                                                            TAG_BROWSERS, TAG_ENGINE)
+                                                                                            TAG_BROWSERS, TAG_ENGINE, TAG_TERMINATE_AT)
 from sg_compute_specs.content_proxy.service.Content_Proxy__User_Data__Builder        import (Content_Proxy__User_Data__Builder,
                                                                                             LOG_FILE)
 
@@ -117,7 +119,10 @@ def sg_rules(tls, edge=Enum__Content_Proxy__Edge.NONE, hostname=''):            
     return inbound, extra
 
 
-def localhost_probe_command(https: bool) -> str:                                   # curl the vault on the box (SSM) — no SG/IP/cert deps
+def localhost_probe_command(https: bool, hostname: str = '') -> str:                # curl the vault on the box (SSM) — no SG/IP deps
+    if hostname:                                                                    # caddy hostname stack: ONLY the <fqdn> site exists (no localhost site) — probe it with the right SNI pinned to loopback (-k tolerates the ACME warm-up cert); a plain https://localhost/ here has no matching site → false 'no response' that hangs `wait`
+        return (f"curl -s -k -o /dev/null --max-time 5 -w '%{{http_code}}' "
+                f"--resolve {hostname}:443:127.0.0.1 https://{hostname}/")
     url  = 'https://localhost/' if https else 'http://localhost:443/'
     flag = '-k ' if https else ''
     return f"curl -s {flag}-o /dev/null --max-time 5 -w '%{{http_code}}' {url}"
@@ -281,7 +286,7 @@ class Content_Proxy__Service(Spec__Service__Base):
                     else:
                         edge_tls = getattr(info, 'edge', None) == Enum__Content_Proxy__Edge.CADDY  # caddy always serves :443 TLS
                         https    = edge_tls or getattr(info, 'tls', None) not in (None, Enum__Content_Proxy__Tls.NONE)
-                        cmd      = localhost_probe_command(https)
+                        cmd      = localhost_probe_command(https, str(getattr(info, 'hostname', '') or ''))
                         try:
                             stdout, _ = self.aws_client.instance.run_command(region, instance_id, cmd, timeout_sec=30)
                             code = parse_http_code(stdout)
@@ -337,6 +342,9 @@ class Content_Proxy__Service(Spec__Service__Base):
                       TAG_TLS   : request.tls.value ,
                       TAG_EDGE  : request.edge.value,
                       TAG_ACCESS: access_token       }
+        if float(request.max_hours) > 0:                                            # surface the boot-script deadman (`shutdown -h +Nmin`) as a tag → list/info show time-left (the in-instance shutdown fires regardless; this just makes it visible)
+            terminate_at = datetime.now(timezone.utc) + timedelta(hours=float(request.max_hours))
+            extra_tags[TAG_TERMINATE_AT] = terminate_at.strftime('%Y-%m-%dT%H:%M:%SZ')
         if fqdn:
             extra_tags[TAG_HOSTNAME] = fqdn
         if browser_count > 0:                                                        # surfaced in info → per-browser /browser/{i} URLs
@@ -519,9 +527,10 @@ class Content_Proxy__Service(Spec__Service__Base):
             yield ('vault-http', 'skip', 'skipped — containers not running')
         else:
             https = (edge == Enum__Content_Proxy__Edge.CADDY) or (tls != Enum__Content_Proxy__Tls.NONE)
+            hostname = str(getattr(info, 'hostname', '') or '')
             yield ('vault-http', 'checking', '')
             try:
-                code = parse_http_code(ssm(localhost_probe_command(https), timeout=30))
+                code = parse_http_code(ssm(localhost_probe_command(https, hostname), timeout=30))
                 if code in (200, 204):
                     yield ('vault-http', 'ok', f'HTTP {code}')
                 elif code in (401, 403):
