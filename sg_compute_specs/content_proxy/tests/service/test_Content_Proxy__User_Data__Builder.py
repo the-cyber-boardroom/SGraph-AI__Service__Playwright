@@ -118,12 +118,6 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
             Schema__Content_Proxy__Create__Request(max_hours=1))                     # under `set -e` a stuck pull/profile-prep would else skip the shutdown
         assert ud.index('shutdown -h +60') < ud.index('dnf install -y docker')      # armed first, so a failed boot still self-terminates
 
-    def test_shutdown_armed_before_firefox_block(self):                             # --firefox path: profile prep can hang; shutdown must already be scheduled
-        from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
-        req = Schema__Content_Proxy__Create__Request(edge=Enum__Content_Proxy__Edge.CADDY, max_hours=1)
-        ud  = Content_Proxy__User_Data__Builder().render(req, firefox_count=2)
-        assert ud.index('shutdown -h +60') < ud.index('stop cp-firefox-1')
-
     def test_caddy_internal_site_gets_public_ip_from_imds(self):                     # https://<ip> needs the IP in the tls-internal cert SAN
         from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
         req = Schema__Content_Proxy__Create__Request(edge=Enum__Content_Proxy__Edge.CADDY)
@@ -167,28 +161,26 @@ class test_Content_Proxy__User_Data__Builder(TestCase):
         assert 'h.sg-compute.sgraph.ai {' in ud                                       # FQDN site → Caddy auto-ACME
         assert '"80:80"' in ud                                                        # ACME http-01 port published
 
-    def test_no_firefox_block_by_default(self):
-        assert 'no interactive browsers (--firefox 0)' in self.ud                     # default: fleet disabled
-        assert 'cp-firefox' not in self.ud
+    def test_no_browser_fleet_by_default(self):
+        assert 'cp-browser' not in self.ud                                            # browser_count defaults to 0
+        assert 'cp-firefox' not in self.ud                                            # the jlesage machinery must never come back
+        assert 'certutil'   not in self.ud
+        assert 'nss-tools'  not in self.ud
 
-    def test_firefox_count_wires_proxy_ca_and_certutil(self):
+    def test_browser_fleet_needs_no_host_prep(self):                                  # THE payoff of owning the image: env-only wiring
         from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge import Enum__Content_Proxy__Edge
         req = Schema__Content_Proxy__Create__Request(edge=Enum__Content_Proxy__Edge.CADDY)
-        ud  = Content_Proxy__User_Data__Builder().render(req, firefox_count=2)
-        assert 'cp-firefox-1:' in ud and 'cp-firefox-2:' in ud                        # compose fleet embedded
-        assert 'dnf install -y nss-tools' in ud                                       # certutil dependency
-        assert '/opt/content-proxy/certs/mitmproxy-ca-cert.pem' in ud                 # mitmproxy self-gen CA (not --ca-from-local)
-        assert ud.count('certutil -A -n "mitmproxy CA" -t "TCu,,"') == 2              # one CA install per profile
-        assert '/opt/content-proxy/firefox/1/profile' in ud                           # per-container profile dir
-        assert 'network.proxy.http",          "mitmproxy-int"' in ud                  # user.js proxy → internal proxy host
-        assert 'network.proxy.http_port",     8080' in ud
-        assert 'handle_path /browser/firefox/1/*' in ud                               # caddy edge routes written too
-        assert 'stop cp-firefox-2'  in ud                                             # container stopped before certutil (release the NSS lock)
-        assert 'start cp-firefox-2' in ud                                             # …then restarted with the CA trusted
-        assert 'timeout 30 certutil' in ud                                            # bounded — a locked/hung profile can't pin the boot at WARN
-        assert 'restart cp-firefox' not in ud                                         # the old lock-racing restart-in-place is gone
+        ud  = Content_Proxy__User_Data__Builder().render(req, browser_count=2, browser_engine='firefox')
+        assert 'cp-browser-1:' in ud and 'cp-browser-2:' in ud                        # compose fleet embedded
+        assert ud.count('SG_PLAYWRIGHT__AUTOSTART_BROWSER=firefox') == 2              # engine choice threaded
+        assert 'handle_path /browser/1/*' in ud                                       # caddy edge routes written too
+        assert 'certutil'  not in ud                                                  # no NSS profile surgery
+        assert 'nss-tools' not in ud                                                  # no host packages for the fleet
+        assert 'user.js'   not in ud                                                  # no profile file poking
+        assert 'stop cp-browser'    not in ud                                         # no boot-ordering dance — compose up is enough
+        assert 'restart cp-browser' not in ud
 
     def test_placeholders_locked(self):
         assert PLACEHOLDERS == ('log_file', 'app_dir', 'env_body', 'compose_body',
                                 'active_body', 'logic_body', 'ca_block', 'overrides_block',
-                                'caddy_block', 'firefox_block', 'shutdown_line')
+                                'caddy_block', 'shutdown_line')

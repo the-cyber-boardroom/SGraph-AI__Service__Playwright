@@ -13,6 +13,7 @@ from sg_compute.primitives.Safe_Str__AWS__Region                                
 from sg_compute.primitives.Safe_Str__Docker__Image                                  import Safe_Str__Docker__Image
 
 from sg_compute_specs.content_proxy.collections.List__Schema__Content_Proxy__Vault__Source import List__Schema__Content_Proxy__Vault__Source
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Browser__Engine       import Enum__Content_Proxy__Browser__Engine
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge                  import Enum__Content_Proxy__Edge
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Mode                  import Enum__Content_Proxy__Mode
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Proxy__Tool           import Enum__Content_Proxy__Proxy__Tool
@@ -32,8 +33,9 @@ class Schema__Content_Proxy__Create__Request(Type_Safe):
     mode               : Enum__Content_Proxy__Mode = Enum__Content_Proxy__Mode.DIRECT_PROXY
     tls                : Enum__Content_Proxy__Tls  = Enum__Content_Proxy__Tls.NONE
     edge               : Enum__Content_Proxy__Edge = Enum__Content_Proxy__Edge.NONE   # NONE=vault-as-edge; CADDY=dedicated edge
-    firefox_count      : int = 0                                                      # N interactive Firefox browsers → cp-firefox-{n} at /browser/firefox/{n}; >0 forces edge=CADDY
     edge_auth          : bool = False                                                 # True → Caddy 401-gates /pw + /browser on the access token (X-API-Key header or cp_access cookie); forces edge=CADDY
+    browser_count      : int = 0                                                      # N interactive sg-playwright-vnc browsers → cp-browser-{n} at /browser/{n}; >0 forces edge=CADDY
+    browser_engine     : Enum__Content_Proxy__Browser__Engine = Enum__Content_Proxy__Browser__Engine.CHROMIUM  # the fleet's autostarted engine (env choice, same image)
     hostname           : Safe_Str__Content_Proxy__Ref                                 # <slug>.sg-compute.sgraph.ai (Caddy auto-ACME)
     with_aws_dns       : bool = False                                                 # Route 53 upsert <stack>.<zone>→IP at create
     proxy_tool         : Enum__Content_Proxy__Proxy__Tool = Enum__Content_Proxy__Proxy__Tool.MITMDUMP   # prod-safe default

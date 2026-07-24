@@ -24,12 +24,11 @@ from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Tls              
 MITMPROXY_IMAGE    = 'mitmproxy/mitmproxy:12.2.3'                                   # latest
 MITM_SERVICE_IMAGE = 'diniscruz/mgraph-ai-service-mitmproxy'
 PLAYWRIGHT_IMAGE   = 'diniscruz/sg-playwright'
+BROWSER_IMAGE      = 'diniscruz/sg-playwright-vnc'                                  # interactive browser fleet (headed + noVNC — the image we control)
+VIEWER_PORT        = 6080                                                           # noVNC web client inside cp-browser-{i}
 VAULT_APP_IMAGE    = 'diniscruz/sg-send-vault'
 CERT_INIT_IMAGE    = 'diniscruz/sg-host-control'                                    # carries sg_compute.platforms.tls.cert_init
 CADDY_IMAGE        = 'caddy:2.8'                                                    # dedicated front-door edge (PoC)
-FIREFOX_IMAGE      = 'jlesage/firefox'                                              # interactive Firefox + noVNC (browser fleet)
-VIEWER_PORT        = 5800                                                           # jlesage/firefox noVNC container port
-FIREFOX_HOST_DIR   = '/opt/content-proxy/firefox'                                   # per-container profile bind-mount root (EC2 only — never rendered locally since count=0)
 
 PLACEHOLDERS = ('mitmproxy_image', 'mitm_service_image', 'playwright_image',
                 'int_command', 'ext_command', 'interceptors_mount', 'browser_block',
@@ -204,40 +203,42 @@ def edge_block(edge: Enum__Content_Proxy__Edge, hostname: str = '') -> str:
     return ''
 
 
-# ── browser fleet (jlesage/firefox + noVNC) ─────────────────────────────────────
-# One interactive Firefox per user, reached at /browser/firefox/{i} through the
-# Caddy edge. Each browses through mitmproxy-int (the no-auth internal proxy
-# sg-playwright already uses). noVNC serves plain HTTP on 5800 — Caddy terminates
-# TLS at the edge (NO SECURE_CONNECTION=1: that makes jlesage serve HTTPS itself
-# and 307-redirect HTTP→HTTPS, which the reverse_proxy can't follow). Ephemeral:
-# the per-container /config bind-mount is wiped with the stack (no named volume, no
-# persistence). The host profile dir is prepared (user.js + certutil CA trust) by
-# the user-data _firefox_block before boot.
-_FIREFOX_SERVICE = """\
+# ── interactive browser fleet (sg-playwright-vnc) ───────────────────────────────
+# One cp-browser-{i} per user, reached at /browser/{i} through the Caddy edge.
+# The image WE control (v0.2.67 plan — replaced the jlesage/firefox fleet, whose
+# foreign image fought every integration point): the service's own env wiring
+# handles proxy (SG_PLAYWRIGHT__DEFAULT_PROXY_URL) + mitmproxy CA
+# (SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS) — NO host profile prep, NO certutil, NO
+# boot-ordering. AUTOSTART opens a headed {engine} on the noVNC desktop once the
+# in-container API is up. noVNC serves plain HTTP on 6080; the edge terminates
+# TLS. Ephemeral: no volumes, nothing persists. Same API key as cp-sg-playwright
+# (the access token) so /desktop + /session on a fleet browser use the known key.
+_BROWSER_SERVICE = """\
 
-  cp-firefox-{i}:
-    image: {firefox_image}
-    container_name: cp-firefox-{i}
+  cp-browser-{i}:
+    image: {browser_image}
+    container_name: cp-browser-{i}
     environment:
-      - HTTP_PROXY=http://mitmproxy-int:8080
-      - HTTPS_PROXY=http://mitmproxy-int:8080
-    volumes:
-      - {firefox_host_dir}/{i}:/config
+      - SG_PLAYWRIGHT__DEFAULT_PROXY_URL=http://mitmproxy-int:8080
+      - SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS=true
+      - SG_PLAYWRIGHT__AUTOSTART_BROWSER={engine}
+      - FAST_API__AUTH__API_KEY__NAME=${{FAST_API__AUTH__API_KEY__NAME:-x-api-key}}
+      - FAST_API__AUTH__API_KEY__VALUE=${{FAST_API__AUTH__API_KEY__VALUE}}
     networks:
       - cp-net
+    restart: unless-stopped
     depends_on:
       - mitmproxy-int
-    restart: unless-stopped
 """
 
 
-def browser_block(firefox_count: int) -> str:                                       # → N cp-firefox-{i} services ('' when count<=0, so the committed local compose is unchanged)
-    if int(firefox_count) <= 0:
+def browser_block(browser_count: int = 0, browser_engine: str = 'chromium') -> str:  # → N cp-browser-{i} services ('' when count<=0, so the committed local compose is unchanged)
+    if int(browser_count) <= 0:
         return ''
-    return ''.join(_FIREFOX_SERVICE.format(i                = i               ,
-                                           firefox_image    = FIREFOX_IMAGE   ,
-                                           firefox_host_dir = FIREFOX_HOST_DIR)
-                   for i in range(1, int(firefox_count) + 1))
+    return ''.join(_BROWSER_SERVICE.format(i             = i                  ,
+                                           browser_image = BROWSER_IMAGE      ,
+                                           engine        = str(browser_engine))
+                   for i in range(1, int(browser_count) + 1))
 
 
 def volumes_block(tls: Enum__Content_Proxy__Tls,
@@ -339,7 +340,8 @@ class Content_Proxy__Compose__Template(Type_Safe):
                      tls                : Enum__Content_Proxy__Tls = Enum__Content_Proxy__Tls.NONE,
                      edge               : Enum__Content_Proxy__Edge = Enum__Content_Proxy__Edge.NONE,
                      hostname           : str = '',                                  # caddy public auto-ACME → publish :80
-                     firefox_count      : int = 0                                    # N interactive Firefox browsers (cp-firefox-{i}); 0 = none
+                     browser_count      : int = 0,                                   # N interactive sg-playwright-vnc browsers (cp-browser-{i}); 0 = none
+                     browser_engine     : str = 'chromium'                           # chromium | firefox — the fleet's autostarted engine
                ) -> str:
         return COMPOSE_TEMPLATE.format(mitmproxy_image    = str(mitmproxy_image)            ,
                                        mitm_service_image = str(mitm_service_image)         ,
@@ -347,7 +349,7 @@ class Content_Proxy__Compose__Template(Type_Safe):
                                        int_command        = proxy_command(proxy_tool, False),                  # int: docker-network clients (private IPs) — block_global irrelevant
                                        ext_command        = proxy_command(proxy_tool, True, allow_global=True),  # ext: public browsers over the internet → must allow global clients
                                        interceptors_mount = str(interceptors_mount)         ,
-                                       browser_block      = browser_block(firefox_count)    ,
+                                       browser_block      = browser_block(browser_count, browser_engine),
                                        vault_block        = vault_block(vault_app_image, tls, edge),
                                        cert_init_block    = cert_init_block(tls, edge)      ,
                                        edge_block         = edge_block(edge, hostname)     ,

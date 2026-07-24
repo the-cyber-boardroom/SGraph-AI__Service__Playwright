@@ -101,3 +101,16 @@ ENV_VAR__WATCHDOG_DISABLED             = 'SG_PLAYWRIGHT__WATCHDOG_DISABLED'
 # See library/guides/v0.2.64__enabling-script-execution.md.
 ENV_VAR__JS_ALLOW_ALL                  = 'SG_PLAYWRIGHT__JS_ALLOW_ALL'
 ENV_VAR__JS_ALLOWLIST_FILE             = 'SG_PLAYWRIGHT__JS_ALLOWLIST_FILE'
+
+
+# ─── Display mode (sg-playwright-vnc image variant) ─────────────────────────────
+#   - DISPLAY_MODE — 'vnc' (baked into the sg-playwright-vnc image: Xvfb :99 +
+#     noVNC :6080; headed launches render there, POST /desktop/browser works) or
+#     'headless' (base image default — no X server; /desktop/browser rejects 400).
+#   - AUTOSTART_BROWSER / AUTOSTART_START_URL — read by the image's supervisord
+#     oneshot (autostart-browser.sh), NOT by the service: it POSTs
+#     /desktop/browser once the API is up so the noVNC desktop greets the user
+#     with a browser already open (the content_proxy fleet path).
+ENV_VAR__DISPLAY_MODE                  = 'SG_PLAYWRIGHT__DISPLAY_MODE'
+ENV_VAR__AUTOSTART_BROWSER             = 'SG_PLAYWRIGHT__AUTOSTART_BROWSER'
+ENV_VAR__AUTOSTART_START_URL           = 'SG_PLAYWRIGHT__AUTOSTART_START_URL'

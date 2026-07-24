@@ -22,12 +22,16 @@ TAG_TLS      = 'cp:tls'
 TAG_EDGE     = 'cp:edge'
 TAG_HOSTNAME = 'cp:hostname'
 TAG_ACCESS   = 'cp:access-token'                                                    # recoverable for info (like sg va's AccessToken)
-TAG_FIREFOX  = 'cp:firefox-count'                                                   # N interactive Firefox browsers → per-browser /browser/firefox/{i} URLs in info
+TAG_BROWSERS = 'cp:browser-count'                                                   # N interactive sg-playwright-vnc browsers → per-browser /browser/{i} URLs in info
+TAG_ENGINE   = 'cp:browser-engine'                                                  # chromium | firefox (the fleet's autostarted engine)
 
 
 def _int_tag(details: dict, key: str) -> int:                                       # tag value → int (0 when absent/malformed)
-    raw = str(tag_value(details, key) or '').strip()
-    return int(raw) if raw.isdigit() else 0
+    try:
+        return int(tag_value(details, key) or 0)
+    except (TypeError, ValueError):
+        return 0
+
 
 
 def _state(details: dict) -> Enum__Content_Proxy__Stack__State:
@@ -61,4 +65,5 @@ class Content_Proxy__Stack__Mapper(Type_Safe):
                                  Enum__Content_Proxy__Edge.NONE)                      ,
             hostname     = tag_value(details, TAG_HOSTNAME)                           ,
             access_token = tag_value(details, TAG_ACCESS)                             ,
-            firefox_count = _int_tag(details, TAG_FIREFOX)                            )
+            browser_count  = _int_tag(details, TAG_BROWSERS)                          ,
+            browser_engine = tag_value(details, TAG_ENGINE)                           )

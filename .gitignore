@@ -217,3 +217,7 @@ _exports
 
 # sandbox-redirected /tmp dirs that leak into the repo root during test runs
 _tmp_*
+
+# content_proxy local up --browsers renders parameterised variants (never committed)
+sg_compute_specs/content_proxy/docker/compose/docker-compose.generated.yml
+sg_compute_specs/content_proxy/docker/compose/Caddyfile.generated

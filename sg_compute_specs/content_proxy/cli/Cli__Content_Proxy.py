@@ -5,6 +5,7 @@
 # Mounted in sg_compute/cli/Cli__SG.py as `sg content-proxy` (alias `cp`).
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import re
 import shlex
 import subprocess
 import threading
@@ -21,6 +22,7 @@ from sg_compute.cli.base.Spec__CLI__Defaults     import DEFAULT_REGION
 from sg_compute.cli.base.Spec__CLI__Errors       import spec_cli_errors
 
 from sg_compute_specs.content_proxy.cli.Renderers                       import render_create, render_info
+from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Browser__Engine import Enum__Content_Proxy__Browser__Engine
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Edge        import Enum__Content_Proxy__Edge
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Mode        import Enum__Content_Proxy__Mode
 from sg_compute_specs.content_proxy.enums.Enum__Content_Proxy__Proxy__Tool import Enum__Content_Proxy__Proxy__Tool
@@ -34,15 +36,31 @@ import sg_compute_specs.content_proxy as _pkg
 COMPOSE_DIR       = Path(_pkg.__file__).parent / 'docker' / 'compose'
 COMPOSE_FILE      = COMPOSE_DIR / 'docker-compose.yml'
 COMPOSE_FILE_CADDY = COMPOSE_DIR / 'docker-compose.caddy.yml'                        # dedicated-edge variant (PoC)
+COMPOSE_GENERATED  = COMPOSE_DIR / 'docker-compose.generated.yml'                    # `local up --browsers N` renders here (gitignored — parameterised, never committed)
+CADDYFILE_GENERATED = COMPOSE_DIR / 'Caddyfile.generated'
 ENV_FILE          = COMPOSE_DIR / '.env'
 ENV_EXAMPLE       = COMPOSE_DIR / '.env.example'
+
+
+def write_generated_local_files(browsers: int, browser_engine: str) -> Path:        # → compose path for `local up --browsers N` (same dir as the committed files so ../../interceptors mounts resolve)
+    from sg_compute_specs.content_proxy.service.Content_Proxy__Compose__Template import Content_Proxy__Compose__Template
+    from sg_compute_specs.content_proxy.service.Content_Proxy__Edge__Template    import Content_Proxy__Edge__Template
+    compose = Content_Proxy__Compose__Template().render(edge          = Enum__Content_Proxy__Edge.CADDY,
+                                                        browser_count = browsers                       ,
+                                                        browser_engine= browser_engine                 )
+    compose = compose.replace('./Caddyfile:/etc/caddy/Caddyfile:ro',                 # the generated caddy config, not the committed one
+                              './Caddyfile.generated:/etc/caddy/Caddyfile:ro')
+    COMPOSE_GENERATED.write_text(compose)
+    CADDYFILE_GENERATED.write_text(Content_Proxy__Edge__Template().render(browser_count=browsers))
+    return COMPOSE_GENERATED
 
 
 def _set_extras(request, mode='direct_proxy', tls='none', edge='none', hostname='',
                 with_aws_dns=False, proxy_tool='mitmdump',
                 proxyauth_user='', proxyauth_pass='', proxy_ca_cert='', proxy_ca_key='',
                 scripts_bucket='', forward_aws_creds=False, env_file='', ca_from_local=False,
-                use_spot=True, disk_size=0, mitm_service_image='', firefox=0, edge_auth=False):
+                use_spot=True, disk_size=0, mitm_service_image='', edge_auth=False,
+                browsers=0, browser_engine='chromium'):
     if env_file:                                                                     # MVP: ship a full .env verbatim to the box
         request.env_inline = Path(env_file).read_text()
     if ca_from_local:                                                                # reuse the local docker mitmproxy CA (already trusted in your browser)
@@ -62,11 +80,12 @@ def _set_extras(request, mode='direct_proxy', tls='none', edge='none', hostname=
     request.edge              = Enum__Content_Proxy__Edge(edge)
     request.hostname          = hostname
     request.with_aws_dns      = bool(with_aws_dns)
-    request.firefox_count     = int(firefox)
     request.edge_auth         = bool(edge_auth)
+    request.browser_count     = int(browsers)
+    request.browser_engine    = Enum__Content_Proxy__Browser__Engine(browser_engine)
     if hostname or with_aws_dns:                                                     # a public hostname requires the Caddy edge (auto-ACME)
         request.edge          = Enum__Content_Proxy__Edge.CADDY
-    if int(firefox) > 0:                                                             # the interactive browser fleet is reached only via the Caddy edge (MVP)
+    if int(browsers) > 0:                                                            # the interactive browser fleet is reached only via the Caddy edge
         request.edge          = Enum__Content_Proxy__Edge.CADDY
     if bool(edge_auth):                                                              # the token gate lives at the Caddy edge — no edge, nothing to gate
         request.edge          = Enum__Content_Proxy__Edge.CADDY
@@ -135,8 +154,8 @@ def _content_proxy_post_launch(svc, region, request, response, kwargs, console):
 # top-down. Carried on _cli_spec so `create --wait` renders the same table (via
 # Spec__CLI__Builder._wait_healthy) as the standalone `check` / `wait` commands.
 DIAGNOSE_CHECK_ORDER = ('ec2-state', 'ssm-reachable', 'boot-failed', 'container-engine',
-                        'containers-up', 'cert-init', 'vault-http', 'boot-ok',
-                        'external-http')
+                        'containers-up', 'cert-init', 'vault-http', 'browser-http',
+                        'boot-ok', 'external-http')
 
 # per-check log source to suggest when a check fails / warns — keys reuse LOG_SOURCES
 # (defined further down; the shared renderer filters against LOG_SOURCES at print).
@@ -147,6 +166,7 @@ DIAGNOSE_HINTS = {
     'containers-up'    : [('boot'        , 'compose up output'), ('vault', 'vault-app container')],
     'cert-init'        : [('cert-init'   , 'one-shot TLS sidecar — self-signed gen / ACME issuance')],
     'vault-http'       : [('vault'        , 'cp-vault-app container output'), ('caddy', 'edge TLS/routing (caddy stacks)')],
+    'browser-http'     : [('browser-1'   , 'first interactive browser — supervisord/xvfb/novnc startup'), ('caddy', 'edge /browser routing')],
     'boot-ok'          : [('boot'        , 'watch boot progress')],
     'external-http'    : [('vault'        , 'cp-vault-app container output'), ('caddy', 'edge TLS/routing (caddy stacks)')],
 }
@@ -180,8 +200,9 @@ app = Spec__CLI__Builder(
         ('edge'          , str , 'none'        , 'Front door: none (vault-as-edge) | caddy (dedicated edge owns :443, /pw routed, vault is a plain origin). --hostname/--with-aws-dns force caddy.'),
         ('hostname'      , str , ''            , 'Public FQDN for the Caddy edge (e.g. my-stack.sg-compute.sgraph.ai) — Caddy does auto-ACME for a real trusted cert (opens :80+:443 to the world). Implies --edge caddy.'),
         ('with_aws_dns'  , bool, False         , 'Auto-create the Route 53 A record <stack>.sg-compute.sgraph.ai → public IP at create (reuses the sg va flow). Implies --edge caddy + a derived hostname.'),
-        ('firefox'       , int , 0             , 'Number of interactive Firefox browsers to run (each = one user, reached at /browser/firefox/{n}; forces --edge caddy). 0 = none.'),
         ('edge_auth'     , bool, False         , 'Token-gate /pw and /browser at the Caddy edge (401 unless the access token is sent as an X-API-Key header or the cp_access cookie; set the cookie once via /edge/auth?token=…). Forces --edge caddy. Default off = open edge.'),
+        ('browsers'      , int , 0             , 'Number of interactive browsers (sg-playwright-vnc: headed browser + noVNC; each = one user at /browser/{n}, browsing through the mitmproxy). Forces --edge caddy. 0 = none.'),
+        ('browser_engine', str , 'chromium'    , 'Engine the interactive browsers autostart: chromium | firefox (env choice on the same image).'),
         ('proxy_tool'    , str , 'mitmdump'    , 'mitmweb (dev, TUI /flows, in-memory) or mitmdump (prod, headless).'),
         ('proxyauth_user', str , ''            , 'mitmproxy-ext basic-auth user (Mode 1).'),
         ('proxyauth_pass', str , ''            , 'mitmproxy-ext basic-auth pass (Mode 1).'),
@@ -345,11 +366,20 @@ def local_up(detach  : bool = typer.Option(True, '--detach/--attach', '-d',
                                           help='Force-recreate containers so .env + the bind-mounted Caddyfile always take effect '
                                                '(docker compose does NOT recreate on bind-mount content changes). --no-recreate to skip.'),
              edge    : str  = typer.Option('none', '--edge',
-                                          help='Front door: none (vault-as-edge) | caddy (dedicated edge, /pw routed, no vault patch).')):
+                                          help='Front door: none (vault-as-edge) | caddy (dedicated edge, /pw routed, no vault patch).'),
+             browsers: int  = typer.Option(0, '--browsers',
+                                          help='Interactive sg-playwright-vnc browsers at /browser/{n} (forces --edge caddy; renders a generated compose+Caddyfile).'),
+             browser_engine: str = typer.Option('chromium', '--browser-engine',
+                                          help='Engine the interactive browsers autostart: chromium | firefox.')):
     """Bring the stack up locally (mitmweb by default → TUI /flows)."""
     c = Console(highlight=False)
     _ensure_env(c)
-    compose_file = COMPOSE_FILE_CADDY if edge == 'caddy' else COMPOSE_FILE
+    if int(browsers) > 0:                                                            # fleet → render generated variants next to the committed files (same relative mounts)
+        edge         = 'caddy'
+        compose_file = write_generated_local_files(int(browsers), str(browser_engine))
+        c.print(f'  [dim]rendered {compose_file.name} + {CADDYFILE_GENERATED.name} (browsers={browsers}, engine={browser_engine})[/]')
+    else:
+        compose_file = COMPOSE_FILE_CADDY if edge == 'caddy' else COMPOSE_FILE
     c.print(f'  [dim]docker compose up ({compose_file.name})[/]')
     up_args = ['up', '-d'] if detach else ['up']
     if recreate:                                                                      # bind-mounted Caddyfile / changed .env only load on (re)create
@@ -363,6 +393,8 @@ def local_up(detach  : bool = typer.Option(True, '--detach/--attach', '-d',
         if edge == 'caddy':
             c.print('     edge:  [cyan]https://localhost/[/]  ·  [cyan]https://localhost/pw/[/]  '
                     '[dim](Caddy internal CA → curl -k, or trust /data root)[/]')
+            for i in range(1, int(browsers) + 1):
+                c.print(f'     browser {i}: [cyan]https://localhost/browser/{i}/[/]  [dim](interactive noVNC)[/]')
         else:
             c.print('     vault front door: [cyan]https://localhost/[/]   (self-signed)')
         token = read_env_file(ENV_FILE).get('SGRAPH_SEND__ACCESS_TOKEN', '')         # vault + /pw need this (header or cookie)
@@ -517,7 +549,21 @@ LOG_SOURCES = {                                                                 
     'mitmproxy-int': (_dlogs('cp-mitmproxy-int')               , 60, 'internal mitmproxy (Playwright path) — one line per proxied request'),
     'mitmproxy-ext': (_dlogs('cp-mitmproxy-ext')               , 60, 'external mitmproxy (human browser, Mode 1) — proxied requests + proxyauth'),
     'caddy'        : (_dlogs('cp-caddy')                       , 60, 'Caddy edge (--edge caddy only) — TLS/ACME issuance + /pw routing'),
+    'browser-1'    : (_dlogs('cp-browser-1')                   , 60, 'interactive browser 1 (sg-playwright-vnc) — supervisord: xvfb/x11vnc/novnc/fastapi'),
+    'browser-2'    : (_dlogs('cp-browser-2')                   , 60, 'interactive browser 2 — any browser-N works for larger fleets'),
 }
+
+
+BROWSER_SOURCE_RE = re.compile(r'^browser-(\d+)$')                                  # browser-N beyond the two listed → cp-browser-N (fleet size is a create-time choice)
+
+
+def log_source_entry(source: str):                                                   # → (cmd_tpl, timeout, desc) | None — LOG_SOURCES plus the dynamic browser-N pattern
+    if source in LOG_SOURCES:
+        return LOG_SOURCES[source]
+    m = BROWSER_SOURCE_RE.match(str(source or ''))
+    if m:
+        return (_dlogs(f'cp-browser-{m.group(1)}'), 60, f'interactive browser {m.group(1)} (sg-playwright-vnc)')
+    return None
 
 
 def resolve_log_source(name: Optional[str], source: str) -> tuple:                  # pure: a numeric positional is a source index (mirrors the prompt numbering)
@@ -577,10 +623,11 @@ def logs(name  : Optional[str] = typer.Argument(None, help='Stack name; auto-sel
     source, name = resolve_log_source(name, source)                                 # 'sg cp logs 4' → cert-init index
     if not source:
         source = _prompt_for_log_source(c)
-    if source not in LOG_SOURCES:
-        raise typer.BadParameter(f'unknown source {source!r}; pick from: {", ".join(LOG_SOURCES)}')
+    entry = log_source_entry(source)                                                # LOG_SOURCES + the dynamic browser-N pattern
+    if entry is None:
+        raise typer.BadParameter(f'unknown source {source!r}; pick from: {", ".join(LOG_SOURCES)} (or browser-N)')
 
-    cmd_tpl, timeout, _desc = LOG_SOURCES[source]
+    cmd_tpl, timeout, _desc = entry
     svc        = Content_Proxy__Service().setup()
     name       = Spec__CLI__Builder(_cli_spec).resolver.resolve(svc, name, region, 'content_proxy')
     others     = '  '.join(k for k in LOG_SOURCES if k != source)

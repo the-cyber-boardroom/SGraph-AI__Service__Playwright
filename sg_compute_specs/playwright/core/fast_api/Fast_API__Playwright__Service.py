@@ -32,6 +32,7 @@ from sg_compute_specs.playwright.core.service.Root_Path__Resolver               
 
 from sg_compute_specs.playwright.core.agentic_fastapi.Agentic_FastAPI                    import Agentic_FastAPI
 from sg_compute_specs.playwright.core.fast_api.routes.Routes__Browser                    import Routes__Browser
+from sg_compute_specs.playwright.core.fast_api.routes.Routes__Desktop                    import Routes__Desktop
 from sg_compute_specs.playwright.core.fast_api.routes.Routes__Health                     import Routes__Health
 from sg_compute_specs.playwright.core.fast_api.routes.Routes__Index                      import Routes__Index
 from sg_compute_specs.playwright.core.fast_api.routes.Routes__Inspect                    import Routes__Inspect
@@ -41,6 +42,7 @@ from sg_compute_specs.playwright.core.fast_api.routes.Routes__Sequence          
 from sg_compute_specs.playwright.core.fast_api.routes.Routes__Session                    import Routes__Session
 from sg_compute_specs.playwright.core.fast_api.routes.Routes__Test_Pages                 import Routes__Test_Pages
 from sg_compute_specs.playwright.core.fast_api.routes.Routes__Test_Pages                 import ROUTES_PATHS__TEST_PAGES
+from sg_compute_specs.playwright.core.service.Desktop__Browser__Manager                  import Desktop__Browser__Manager
 from sg_compute_specs.playwright.core.service.Playwright__Service                        import Playwright__Service
 from sg_compute_specs.playwright.core.service.Request__Watchdog                          import Request__Watchdog
 
@@ -115,6 +117,7 @@ class Fast_API__Playwright__Service(Agentic_FastAPI):
         self.add_routes(Routes__Screenshot , service=self.service)
         self.add_routes(Routes__Inspect    , service=self.service)                  # Φ5 — POST /inspect probe-batch
         self.add_routes(Routes__Session    , service=self.service)                  # Φ7 — opt-in stateful session handles
+        self.add_routes(Routes__Desktop    , manager=Desktop__Browser__Manager(service=self.service))  # sg-playwright-vnc: POST /desktop/browser (400s unless SG_PLAYWRIGHT__DISPLAY_MODE=vnc)
         self.add_routes(Routes__Metrics  )                                          # No service injection — reads from module-level _REGISTRY in Metrics__Collector
         self.add_routes(Routes__Set_Cookie)                                         # /auth/set-cookie-form (HTML UI) + /auth/set-auth-cookie (POST) — both in AUTH__EXCLUDED_PATHS so they bypass the API-key middleware
         self.add_routes(Routes__Test_Pages)                                         # GET /test-pages/{name} — deterministic self-contained HTML fixtures the S-series console examples target; auth-excluded in setup()

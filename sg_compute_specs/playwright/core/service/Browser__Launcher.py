@@ -53,6 +53,14 @@ DEFAULT_LAUNCH_ARGS : List[str] = ['--no-sandbox'           ,                   
                                    '--single-process'       ,                        # Fits Lambda's single-vCPU model and avoids zombie helper processes
                                    '--use-mock-keychain'    ]                        # Skip macOS keychain integration on laptop targets — harmless elsewhere
 
+# Headed (sg-playwright-vnc, headless=false) — the Lambda-tuned set above breaks a
+# visible browser: --single-process makes headed Chromium crash-prone. Same
+# container-safety args minus it, plus a maximised window for the noVNC viewer.
+DEFAULT_LAUNCH_ARGS__HEADED : List[str] = ['--no-sandbox'           ,
+                                           '--disable-gpu'          ,
+                                           '--disable-dev-shm-usage',
+                                           '--start-maximized'      ]
+
 
 class Browser__Launcher(Type_Safe):
 
@@ -157,7 +165,8 @@ class Browser__Launcher(Type_Safe):
 
         args = [str(a) for a in (browser_config.launch_args or [])]                  # Caller's list, if any, REPLACES defaults (per spec §5.2)
         if not args and is_chromium:
-            args = list(DEFAULT_LAUNCH_ARGS)                                         # Safe Chromium flags for Lambda + container runtimes — Firefox/WebKit reject '--no-sandbox' et al
+            args = list(DEFAULT_LAUNCH_ARGS if browser_config.headless else          # Safe Chromium flags for Lambda + container runtimes — Firefox/WebKit reject '--no-sandbox' et al
+                        DEFAULT_LAUNCH_ARGS__HEADED)                                 # headed (vnc mode): no --single-process (crash-prone with a real window)
         if args:
             kwargs['args'] = args
 

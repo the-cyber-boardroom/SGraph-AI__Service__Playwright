@@ -18,7 +18,8 @@ class test_diagnose_check_order(TestCase):
 
     def test_order_matches_diagnose_stages_plus_external(self):
         assert DIAGNOSE_CHECK_ORDER == ('ec2-state', 'ssm-reachable', 'boot-failed', 'container-engine',
-                                        'containers-up', 'cert-init', 'vault-http', 'boot-ok', 'external-http')
+                                        'containers-up', 'cert-init', 'vault-http', 'browser-http',
+                                        'boot-ok', 'external-http')
 
     def test_cert_init_present_for_tls_debugging(self):
         assert 'cert-init' in DIAGNOSE_CHECK_ORDER
