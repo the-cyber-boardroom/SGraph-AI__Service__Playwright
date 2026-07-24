@@ -62,13 +62,13 @@ class test_typer_app(TestCase):
         result = self.runner.invoke(self.app, ['delete', '--help'])
         assert result.exit_code == 0
         out    = _plain(result.stdout)
-        assert '[NAME]' in out                                                        # Brackets = optional argument
+        assert '[name]' in out.lower()                                                 # Brackets = optional argument (Typer/Click render the metavar upper- or lower-case by version)
 
     def test__connect_command_help(self):                                             # SSM shell — mirrors sp linux connect
         result = self.runner.invoke(self.app, ['connect', '--help'])
         assert result.exit_code == 0
         out    = _plain(result.stdout)
-        assert '[NAME]' in out                                                        # Optional name (auto-pick when one stack)
+        assert '[name]' in out.lower()                                                 # Optional name (auto-pick when one stack) — case-insensitive: metavar casing is version-dependent
         assert 'SSM'    in out                                                        # Help mentions SSM
 
     def test__interceptors_command_lists_baked_examples(self):                      # No service call needed
