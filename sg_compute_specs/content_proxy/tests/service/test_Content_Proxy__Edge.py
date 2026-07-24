@@ -39,7 +39,9 @@ class test_Content_Proxy__Edge__Template__browser_routes(TestCase):
         assert 'handle_path /browser/2/*' in caddy
         assert 'reverse_proxy cp-browser-1:6080' in caddy                            # noVNC port on OUR image
         assert 'reverse_proxy cp-browser-2:6080' in caddy
-        assert 'redir /browser/2 /browser/2/vnc.html 308' in caddy                   # bare path lands on the noVNC client
+        assert 'redir /browser/2 /browser/2/ 308' in caddy                           # bare path → canonical trailing slash
+        assert 'path=browser/2/websockify' in caddy                                  # noVNC dials the SUB-PATH websocket (root-absolute /websockify would hit the vault catch-all)
+        assert '/browser/2/vnc.html?path=browser/2/websockify' in caddy              # …reached via the in-handle @root redirect
         assert 'handle_path /browser/3/*' not in caddy
 
     def test_browser_routes_sit_above_the_catch_all(self):
@@ -55,7 +57,7 @@ class test_Content_Proxy__Edge__Template__browser_routes(TestCase):
         caddy = Content_Proxy__Edge__Template().render(browser_count=2, edge_auth=True)
         assert caddy.count('not header X-API-Key') == 3                              # one guard each: /pw + 2 browsers
         for i in (1, 2):
-            blk = caddy.split(f'handle_path /browser/{i}/*')[1].split('redir')[0]
+            blk = caddy.split(f'handle_path /browser/{i}/*')[1].split(f'redir /browser/{i} ')[0]  # split on the bare-path redir (not the in-handle @root one)
             assert 'not header X-API-Key' in blk and f'reverse_proxy cp-browser-{i}:6080' in blk
 
 

@@ -53,16 +53,23 @@ ROUTE_BODY__CATCHALL = """\
 
 # one generated block per interactive browser (sg-playwright-vnc — engine-agnostic
 # path: the engine is a container env choice, not a route). handle_path strips the
-# /browser/{i} prefix so noVNC (which uses relative asset/websocket paths) serves
-# from /. Caddy proxies the websocket natively. {{ }} → single Caddy brace.
+# /browser/{i} prefix so noVNC serves from /. noVNC's ASSETS use relative paths
+# (survive the strip), but its WEBSOCKET URL is root-absolute (wss://host/websockify)
+# — wrong under a sub-path. So land the bare dir on vnc.html with an explicit
+# sub-path websocket (`?path=browser/{i}/websockify`) + autoconnect; the client
+# then dials wss://host/browser/{i}/websockify, which this handle strips to
+# /websockify → websockify upgrade (Caddy proxies the ws natively). {{ }} → single
+# Caddy brace; `?path=…` query survives the redir target verbatim.
 BROWSER_ROUTE = """\
 	# interactive browser {i} — sg-playwright-vnc noVNC under a sub-path
 	handle_path /browser/{i}/* {{
+		@root path /
+		redir @root /browser/{i}/vnc.html?path=browser/{i}/websockify&autoconnect=true&resize=scale 308
 		reverse_proxy cp-browser-{i}:6080
 	}}
 
-	# bare /browser/{i} → the noVNC client (relative paths need the trailing slash)
-	redir /browser/{i} /browser/{i}/vnc.html 308
+	# bare /browser/{i} → canonical trailing slash (then the @root redir above sends it to vnc.html)
+	redir /browser/{i} /browser/{i}/ 308
 
 """
 
@@ -77,11 +84,13 @@ BROWSER_ROUTE__AUTH = (
     '\t\t\trespond "unauthorized" 401\n'
     "\t\t}}\n"
     "\t\thandle {{\n"
+    "\t\t\t@root path /\n"
+    "\t\t\tredir @root /browser/{i}/vnc.html?path=browser/{i}/websockify&autoconnect=true&resize=scale 308\n"
     "\t\t\treverse_proxy cp-browser-{i}:6080\n"
     "\t\t}}\n"
     "\t}}\n"
     "\n"
-    "\tredir /browser/{i} /browser/{i}/vnc.html 308\n"
+    "\tredir /browser/{i} /browser/{i}/ 308\n"
     "\n")
 
 
