@@ -60,7 +60,7 @@ def _set_extras(request, mode='direct_proxy', tls='none', edge='none', hostname=
                 proxyauth_user='', proxyauth_pass='', proxy_ca_cert='', proxy_ca_key='',
                 scripts_bucket='', forward_aws_creds=False, env_file='', ca_from_local=False,
                 use_spot=True, disk_size=0, mitm_service_image='', edge_auth=False,
-                browsers=0, browser_engine='chromium'):
+                browsers=0, browser_engine='chromium', tag=None):
     if env_file:                                                                     # MVP: ship a full .env verbatim to the box
         request.env_inline = Path(env_file).read_text()
     if ca_from_local:                                                                # reuse the local docker mitmproxy CA (already trusted in your browser)
@@ -94,12 +94,29 @@ def _set_extras(request, mode='direct_proxy', tls='none', edge='none', hostname=
     request.proxyauth_pass    = proxyauth_pass
     request.proxy_ca_cert     = proxy_ca_cert
     request.proxy_ca_key      = proxy_ca_key
-    request.scripts_bucket    = resolve_scripts_bucket(scripts_bucket, read_env_file(ENV_FILE))  # explicit flag wins; else inherit the local .env's CACHE__SERVICE__BUCKET_NAME
+    local_env                 = read_env_file(ENV_FILE)
+    request.scripts_bucket    = resolve_scripts_bucket(scripts_bucket, local_env)    # explicit flag wins; else inherit the local .env's CACHE__SERVICE__BUCKET_NAME
+    stack_creds               = resolve_stack_aws_creds(local_env)                   # S3 creds for the box, from the local stack .env (not the deploy session)
+    request.aws_access_key_id     = stack_creds.get('AWS_ACCESS_KEY_ID'    , '')
+    request.aws_secret_access_key = stack_creds.get('AWS_SECRET_ACCESS_KEY', '')
+    request.aws_session_token     = stack_creds.get('AWS_SESSION_TOKEN'    , '')
+    tag_lines = []                                                                   # --tag KEY=VALUE (repeatable): shape validated here; reserved-key collisions rejected in the service before any AWS call
+    for kv in (tag or []):
+        key = kv.split('=', 1)[0].strip() if '=' in kv else ''
+        if not key:
+            raise typer.BadParameter(f'--tag expects KEY=VALUE (non-empty key), got {kv!r}')
+        tag_lines.append(kv.strip())
+    request.custom_tags       = '\n'.join(tag_lines)
     request.forward_aws_creds = bool(forward_aws_creds)
     request.use_spot          = bool(use_spot)
     request.disk_size_gb      = int(disk_size)
     if mitm_service_image:
         request.mitm_service_image = mitm_service_image
+
+
+def resolve_stack_aws_creds(local_env: dict) -> dict:                              # AWS creds the STACK runs with (mitm-service → S3), inherited from the LOCAL stack .env — deliberately NOT os.environ, which holds the operator session used to deploy (an S3-only user there would break the EC2/Route53 calls)
+    keys = ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN')
+    return {k: str(local_env.get(k, '') or '') for k in keys if str(local_env.get(k, '') or '')}
 
 
 def resolve_scripts_bucket(explicit: str, local_env: dict) -> str:                 # explicit --scripts-bucket wins; else inherit the local .env's CACHE__SERVICE__BUCKET_NAME (single-source, like `local up`)
@@ -203,6 +220,7 @@ app = Spec__CLI__Builder(
         ('edge_auth'     , bool, False         , 'Token-gate /pw and /browser at the Caddy edge (401 unless the access token is sent as an X-API-Key header or the cp_access cookie; set the cookie once via /edge/auth?token=…). Forces --edge caddy. Default off = open edge.'),
         ('browsers'      , int , 0             , 'Number of interactive browsers (sg-playwright-vnc: headed browser + noVNC; each = one user at /browser/{n}, browsing through the mitmproxy). Forces --edge caddy. 0 = none.'),
         ('browser_engine', str , 'chromium'    , 'Engine the interactive browsers autostart: chromium | firefox (env choice on the same image).'),
+        ('tag'           , List[str], []       , 'Extra EC2 tag, KEY=VALUE; repeat for multiple (e.g. --tag Project=akeia --tag CostCenter=42). Reserved stack keys (StackName/StackType/Name/cp:*) are rejected.'),
         ('proxy_tool'    , str , 'mitmdump'    , 'mitmweb (dev, TUI /flows, in-memory) or mitmdump (prod, headless).'),
         ('proxyauth_user', str , ''            , 'mitmproxy-ext basic-auth user (Mode 1).'),
         ('proxyauth_pass', str , ''            , 'mitmproxy-ext basic-auth pass (Mode 1).'),

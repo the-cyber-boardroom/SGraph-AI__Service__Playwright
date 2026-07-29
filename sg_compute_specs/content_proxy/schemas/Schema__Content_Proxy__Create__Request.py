@@ -50,6 +50,14 @@ class Schema__Content_Proxy__Create__Request(Type_Safe):
     proxy_ca_pem       : Safe_Str__Content_Proxy__Env__File                          # combined mitmproxy CA (cert+key) shipped to the box
     scripts_bucket     : Safe_Str__Content_Proxy__Ref                                # CACHE__SERVICE__BUCKET_NAME (MITM scripts)
     forward_aws_creds  : bool = False                                                # bake operator AWS_* into the EC2 .env (parity; else instance role)
+    # AWS creds the STACK runs with (mitm-service → S3 cache) — distinct from the
+    # operator session that DEPLOYS it. CLI inherits these from the local stack
+    # .env (like scripts_bucket), so an S3-only user can be shipped to the box
+    # without breaking the EC2/Route53 calls the deploy itself needs.
+    aws_access_key_id     : Safe_Str__Text
+    aws_secret_access_key : Safe_Str__Text
+    aws_session_token     : Safe_Str__Text                                           # required for temporary/STS creds (mode 3)
+    custom_tags        : Safe_Str__Content_Proxy__Env__File                          # operator EC2 tags, newline-joined KEY=VALUE (CLI fills from repeatable --tag)
     env_inline         : Safe_Str__Content_Proxy__Env__File                          # full .env shipped verbatim (MVP: overrides generated env)
     # image refs (pulled from Docker Hub)
     mitmproxy_image    : Safe_Str__Docker__Image = 'mitmproxy/mitmproxy:12.2.3'

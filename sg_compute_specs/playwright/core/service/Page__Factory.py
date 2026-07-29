@@ -36,12 +36,19 @@ def context_kwargs_from_env() -> Dict[str, Any]:                                
     return kwargs
 
 
-def get_or_create_page(browser: Any) -> Any:                                        # The ONLY supported way to get a Page from a Browser in this codebase
+def get_or_create_page(browser: Any, no_viewport: bool = False) -> Any:             # The ONLY supported way to get a Page from a Browser in this codebase
+    # no_viewport: keep the REAL OS window size instead of Playwright's default
+    # 1280x720 viewport (which resizes a headed window to match). Set for headed
+    # /desktop sessions so --start-maximized/--kiosk actually take effect on the
+    # VNC display; headless automation keeps the deterministic viewport.
     contexts = browser.contexts                                                     # Playwright sync API: `contexts` is a @property returning List[BrowserContext]
     if contexts:
         context = contexts[0]
     else:
-        context = browser.new_context(**context_kwargs_from_env())
+        kwargs = context_kwargs_from_env()
+        if no_viewport:
+            kwargs['no_viewport'] = True
+        context = browser.new_context(**kwargs)
     pages = context.pages
     if pages:
         return pages[0]

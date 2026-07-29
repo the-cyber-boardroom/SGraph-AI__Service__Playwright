@@ -76,7 +76,8 @@ class Session__Registry(Type_Safe):
             launch_result = self.browser_launcher.launch(browser_config or Schema__Browser__Config())
             self.browser_launcher.register(session_id, launch_result)
             browser = launch_result.browser
-            page    = self._get_or_create_page(browser)
+            headed  = not bool(getattr(browser_config or Schema__Browser__Config(), 'headless', True))
+            page    = self._get_or_create_page(browser, no_viewport=headed)          # headed = a VNC desktop session → keep the real window size (see Page__Factory)
             buffer  = Page__Listeners__Buffer()
             try:
                 buffer.attach(page)
@@ -150,6 +151,6 @@ class Session__Registry(Type_Safe):
         except Exception:
             pass                                                                    # Never raise — close must be best-effort
 
-    def _get_or_create_page(self, browser: Any) -> Any:                              # Runs on the worker thread (called from launch_fn). Delegates to Page__Factory — the single canonical helper that handles the SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS env var. ISSUE-A 2026-05-31 was caused by this method having its own copy of the logic without the env-var check; never reintroduce that.
+    def _get_or_create_page(self, browser: Any, no_viewport: bool = False) -> Any:   # Runs on the worker thread (called from launch_fn). Delegates to Page__Factory — the single canonical helper that handles the SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS env var. ISSUE-A 2026-05-31 was caused by this method having its own copy of the logic without the env-var check; never reintroduce that.
         from sg_compute_specs.playwright.core.service.Page__Factory import get_or_create_page as _factory
-        return _factory(browser)
+        return _factory(browser, no_viewport=no_viewport)

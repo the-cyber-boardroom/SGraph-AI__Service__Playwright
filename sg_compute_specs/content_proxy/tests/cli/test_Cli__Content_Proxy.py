@@ -316,3 +316,57 @@ class test_multi_account_overrides(TestCase):
             os.environ.pop('SG_AWS__DNS__DEFAULT_ZONE', None)
             if prior is not None:
                 os.environ['SG_AWS__DNS__DEFAULT_ZONE'] = prior
+
+
+class test_stack_aws_creds_and_tags(TestCase):
+
+    def test_stack_creds_come_from_local_env_not_os_environ(self):                   # the deploy session must stay separate from what the box runs with
+        from sg_compute_specs.content_proxy.cli.Cli__Content_Proxy import resolve_stack_aws_creds
+        out = resolve_stack_aws_creds({'AWS_ACCESS_KEY_ID': 'AKIA-s3-only',
+                                       'AWS_SECRET_ACCESS_KEY': 'sec',
+                                       'AWS_SESSION_TOKEN': 'tok',
+                                       'CACHE__SERVICE__BUCKET_NAME': 'b'})
+        assert out == {'AWS_ACCESS_KEY_ID': 'AKIA-s3-only', 'AWS_SECRET_ACCESS_KEY': 'sec',
+                       'AWS_SESSION_TOKEN': 'tok'}                                   # session token included (mode 3)
+        assert resolve_stack_aws_creds({}) == {}                                     # nothing local → nothing shipped
+
+    def test_explicit_stack_creds_beat_forward_aws_creds(self):
+        import os
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Service import stack_aws_creds
+        req = Schema__Content_Proxy__Create__Request(aws_access_key_id='AKIA-local',
+                                                     aws_secret_access_key='local-sec',
+                                                     forward_aws_creds=True)
+        prior = os.environ.get('AWS_ACCESS_KEY_ID')
+        os.environ['AWS_ACCESS_KEY_ID'] = 'AKIA-deploy-session'
+        try:
+            creds = stack_aws_creds(req)
+            assert creds['AWS_ACCESS_KEY_ID'] == 'AKIA-local'                        # the S3-only user, NOT the deploy session
+        finally:
+            os.environ.pop('AWS_ACCESS_KEY_ID', None)
+            if prior is not None:
+                os.environ['AWS_ACCESS_KEY_ID'] = prior
+
+    def test_no_creds_without_local_env_or_flag(self):                               # default = instance role, nothing baked
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Service import stack_aws_creds
+        assert stack_aws_creds(Schema__Content_Proxy__Create__Request()) == {}
+
+    def test_tag_option_parses_and_rejects_reserved(self):
+        from sg_compute_specs.content_proxy.service.Content_Proxy__Service import parse_custom_tags
+        req = Schema__Content_Proxy__Create__Request()
+        _set_extras(req, tag=['Project=akeia', 'CostCenter=42'])
+        assert parse_custom_tags(str(req.custom_tags)) == {'Project': 'akeia', 'CostCenter': '42'}
+        for reserved in ('StackName', 'Name', 'cp:edge'):                            # reserved keys rejected BEFORE any AWS call
+            try:
+                parse_custom_tags(f'{reserved}=x')
+                assert False, f'{reserved} should be rejected'
+            except ValueError as exc:
+                assert 'reserved' in str(exc)
+
+    def test_tag_requires_key_equals_value(self):
+        import typer
+        req = Schema__Content_Proxy__Create__Request()
+        try:
+            _set_extras(req, tag=['no-equals-sign'])
+            assert False, 'expected BadParameter'
+        except typer.BadParameter:
+            pass

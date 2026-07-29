@@ -23,11 +23,22 @@ from sg_compute_specs.playwright.core.consts.env_vars                           
 from sg_compute_specs.playwright.core.schemas.browser.Schema__Browser__Config                            import Schema__Browser__Config
 from sg_compute_specs.playwright.core.schemas.desktop.Schema__Desktop__Browser__Request                  import Schema__Desktop__Browser__Request
 from sg_compute_specs.playwright.core.schemas.desktop.Schema__Desktop__Browser__Response                 import Schema__Desktop__Browser__Response
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Desktop__Window__Mode                          import Enum__Desktop__Window__Mode
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Display__Mode                                  import Enum__Display__Mode
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Sequence__Status                               import Enum__Sequence__Status
 from sg_compute_specs.playwright.core.schemas.session_handle.Schema__Session__Act__Request               import Schema__Session__Act__Request
 from sg_compute_specs.playwright.core.schemas.session_handle.Schema__Session__Open__Request              import Schema__Session__Open__Request
+from sg_compute_specs.playwright.core.service.Browser__Launcher                                          import DEFAULT_LAUNCH_ARGS__HEADED
 from sg_compute_specs.playwright.core.service.Playwright__Service                                        import Playwright__Service
+
+
+def launch_args_for(window_mode: Enum__Desktop__Window__Mode) -> list:              # → Chromium args for the requested geometry (a non-empty list REPLACES the launcher defaults, per spec 5.2)
+    base = [a for a in DEFAULT_LAUNCH_ARGS__HEADED if a != '--start-maximized']      # container-safety args, geometry stripped
+    if window_mode == Enum__Desktop__Window__Mode.KIOSK:
+        return base + ['--kiosk']                                                    # fullscreen, no tabs/address bar/decorations
+    if window_mode == Enum__Desktop__Window__Mode.MAXIMISED:
+        return base + ['--start-maximized']                                          # fills the display, keeps the browser UI
+    return base                                                                      # NORMAL — default-sized floating window
 
 
 def display_mode() -> Enum__Display__Mode:                                          # env-driven; unknown/absent values mean headless (the safe base-image default)
@@ -44,8 +55,9 @@ class Desktop__Browser__Manager(Type_Safe):
         if display_mode() != Enum__Display__Mode.VNC:
             raise HTTPException(400, f'/desktop/browser needs {ENV_VAR__DISPLAY_MODE}=vnc — this instance is '
                                      f'headless (no X display to render a headed browser on)')
-        browser_config = Schema__Browser__Config(browser_name = request.engine,
-                                                 headless     = False         )      # Browser__Launcher picks the headed default args (no --single-process)
+        browser_config = Schema__Browser__Config(browser_name = request.engine                        ,
+                                                 headless     = False                                 ,   # headed → Session__Registry passes no_viewport so the geometry below actually applies
+                                                 launch_args  = launch_args_for(request.window_mode)  )
         open_request   = Schema__Session__Open__Request(browser_config = browser_config,
                                                         ttl_ms         = request.ttl_ms)
         opened         = self.service.session_open(open_request)
@@ -59,6 +71,7 @@ class Desktop__Browser__Manager(Type_Safe):
 
         return Schema__Desktop__Browser__Response(session_id    = opened.session_id            ,
                                                   engine        = request.engine               ,
+                                                  window_mode   = request.window_mode          ,
                                                   start_url     = request.start_url            ,
                                                   navigated     = navigated                    ,
                                                   expires_at_ms = int(opened.expires_at_ms or 0))

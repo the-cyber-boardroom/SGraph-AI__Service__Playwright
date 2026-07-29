@@ -46,6 +46,44 @@ def _default_aws_dns_zone() -> str:
     return os.environ.get('SG_AWS__DNS__DEFAULT_ZONE', DEFAULT_AWS_DNS_ZONE)
 
 
+RESERVED_TAG_KEYS = {'Name', 'StackName', 'StackType', 'Purpose', 'CreatedBy', 'CallerIp',
+                     TAG_MODE, TAG_TLS, TAG_EDGE, TAG_HOSTNAME, TAG_ACCESS,
+                     TAG_BROWSERS, TAG_ENGINE, TAG_TERMINATE_AT}
+
+
+def parse_custom_tags(custom_tags: str) -> dict:                                    # newline-joined KEY=VALUE (CLI validates shape) → dict; rejects reserved keys BEFORE any AWS mutation
+    out = {}
+    for line in str(custom_tags or '').splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        key, _, value = line.partition('=')
+        key = key.strip()
+        if not key:
+            continue
+        if key in RESERVED_TAG_KEYS:
+            raise ValueError(f"--tag {key!r} is reserved by the content-proxy stack "
+                             f"(used for lifecycle/filtering); choose a different key.")
+        out[key] = value.strip()
+    return out
+
+
+def stack_aws_creds(request) -> dict:                                               # creds the STACK runs with: explicit request fields (from the local .env) win over the operator session forwarded by --forward-aws-creds
+    explicit = {'AWS_ACCESS_KEY_ID'    : str(getattr(request, 'aws_access_key_id'    , '') or ''),
+                'AWS_SECRET_ACCESS_KEY': str(getattr(request, 'aws_secret_access_key', '') or ''),
+                'AWS_SESSION_TOKEN'    : str(getattr(request, 'aws_session_token'    , '') or '')}
+    creds = {k: v for k, v in explicit.items() if v}
+    if creds:
+        return creds
+    if not bool(getattr(request, 'forward_aws_creds', False)):
+        return {}
+    for k in ('AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY', 'AWS_SESSION_TOKEN'):    # session token included — temporary/SSO creds are broken without it (mode 3)
+        v = os.environ.get(k, '')
+        if v:
+            creds[k] = v
+    return creds
+
+
 def _instance_profile() -> str:                                                     # a different AWS account uses a differently-named profile — override without a code change
     return os.environ.get('SG_CONTENT_PROXY__INSTANCE_PROFILE', PROFILE_NAME)
 
@@ -342,6 +380,7 @@ class Content_Proxy__Service(Spec__Service__Base):
                              or env_map.get('FASTAPI_API_KEY_VALUE'))
         request.proxyauth_user, request.proxyauth_pass = resolve_proxyauth(          # ext (internet-facing) proxy needs real basic-auth — local `up` fills it via realize_secrets, the EC2 path must too (else proxyauth=: → empty/broken Mode 1)
             str(request.proxyauth_user), str(request.proxyauth_pass), bool(str(request.env_inline)))
+        custom_tags = parse_custom_tags(str(getattr(request, 'custom_tags', '')))   # raises on a reserved key BEFORE any AWS call
         extra_tags = {TAG_MODE  : request.mode.value,
                       TAG_TLS   : request.tls.value ,
                       TAG_EDGE  : request.edge.value,
@@ -354,14 +393,12 @@ class Content_Proxy__Service(Spec__Service__Base):
         if browser_count > 0:                                                        # surfaced in info → per-browser /browser/{i} URLs
             extra_tags[TAG_BROWSERS] = str(browser_count)
             extra_tags[TAG_ENGINE]   = browser_engine
+        extra_tags.update(custom_tags)                                               # operator --tag KEY=VALUE (reserved keys already rejected)
         tags = self.aws_client.tags.build(stack_name, caller_ip, creator,                         # access token tagged → recoverable for info
                                           extra_tags=extra_tags)
-        aws_creds = {}
-        if bool(request.forward_aws_creds):                                          # parity path — bake operator creds; else instance role
-            for k in ('AWS_ACCOUNT_ID', 'AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'):
-                v = os.environ.get(k, '')
-                if v:
-                    aws_creds[k] = v
+        aws_creds = stack_aws_creds(request)                                         # local-.env creds (S3-only user) ⊳ --forward-aws-creds operator session; both now carry AWS_SESSION_TOKEN
+        if bool(request.forward_aws_creds) and os.environ.get('AWS_ACCOUNT_ID'):
+            aws_creds.setdefault('AWS_ACCOUNT_ID', os.environ['AWS_ACCOUNT_ID'])
         account_id = derive_account_id(region) or aws_creds.get('AWS_ACCOUNT_ID', '')  # always set AWS_ACCOUNT_ID on the box, even on the instance-role path
         user_data = self.user_data_builder.render(request,
                                                   fastapi_api_key    = fastapi_key        ,

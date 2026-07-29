@@ -19,7 +19,9 @@ from sg_compute_specs.playwright.core.schemas.desktop.Schema__Desktop__Browser__
 from sg_compute_specs.playwright.core.schemas.enums.Enum__Display__Mode                import Enum__Display__Mode
 from sg_compute_specs.playwright.core.service.Browser__Launcher                        import (Browser__Launcher, DEFAULT_LAUNCH_ARGS,
                                                                                                DEFAULT_LAUNCH_ARGS__HEADED)
-from sg_compute_specs.playwright.core.service.Desktop__Browser__Manager                import Desktop__Browser__Manager, display_mode
+from sg_compute_specs.playwright.core.schemas.enums.Enum__Desktop__Window__Mode        import Enum__Desktop__Window__Mode
+from sg_compute_specs.playwright.core.service.Desktop__Browser__Manager                import (Desktop__Browser__Manager, display_mode,
+                                                                                               launch_args_for)
 
 
 class _DisplayModeEnv:                                                                 # set/clear SG_PLAYWRIGHT__DISPLAY_MODE around a block
@@ -87,3 +89,35 @@ class test_headed_launch_args_seam(TestCase):
         config = Schema__Browser__Config(headless=False, launch_args=['--foo'])
         kwargs = Browser__Launcher().build_launch_kwargs(config)
         assert kwargs['args'] == ['--foo']
+
+
+class test_window_mode_launch_args(TestCase):
+
+    def test_maximised_is_the_default_and_fills_the_display(self):                   # a 1280x720 window on a 1920x1080 Xvfb looks broken
+        assert Schema__Desktop__Browser__Request().window_mode == Enum__Desktop__Window__Mode.MAXIMISED
+        args = launch_args_for(Enum__Desktop__Window__Mode.MAXIMISED)
+        assert '--start-maximized' in args and '--kiosk' not in args
+
+    def test_kiosk_drops_the_browser_ui(self):
+        args = launch_args_for(Enum__Desktop__Window__Mode.KIOSK)
+        assert '--kiosk' in args and '--start-maximized' not in args
+
+    def test_normal_has_no_geometry_flag(self):
+        args = launch_args_for(Enum__Desktop__Window__Mode.NORMAL)
+        assert '--kiosk' not in args and '--start-maximized' not in args
+
+    def test_every_mode_keeps_the_container_safety_args(self):                       # these are why headed Chromium survives in a container at all
+        for mode in Enum__Desktop__Window__Mode:
+            args = launch_args_for(mode)
+            assert '--no-sandbox' in args and '--disable-dev-shm-usage' in args
+            assert '--single-process' not in args                                    # crash-prone headed
+
+
+class test_no_viewport_seam(TestCase):
+
+    def test_headed_page_keeps_the_real_window_size(self):                           # Playwright's default 1280x720 viewport would otherwise resize the window, defeating --start-maximized
+        import inspect
+        from sg_compute_specs.playwright.core.service.Page__Factory import get_or_create_page
+        assert 'no_viewport' in inspect.signature(get_or_create_page).parameters
+        from sg_compute_specs.playwright.core.service.Session__Registry import Session__Registry
+        assert 'no_viewport' in inspect.signature(Session__Registry._get_or_create_page).parameters

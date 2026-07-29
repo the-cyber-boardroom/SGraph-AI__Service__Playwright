@@ -17,6 +17,7 @@ ENGINE="${SG_PLAYWRIGHT__AUTOSTART_BROWSER:-}"
 # empty → omit the field so a plain blank browser opens (sending about:blank made
 # the boot POST 500 → no browser → black noVNC screen).
 START_URL="${SG_PLAYWRIGHT__AUTOSTART_START_URL:-}"
+WINDOW_MODE="${SG_PLAYWRIGHT__AUTOSTART_WINDOW_MODE:-maximised}"                     # normal | maximised | kiosk
 KEY_NAME="${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}"
 KEY_VALUE="${FAST_API__AUTH__API_KEY__VALUE:-}"
 
@@ -26,11 +27,11 @@ for i in $(seq 1 30); do                                                        
 done
 
 if [ -n "$START_URL" ]; then                                                         # include start_url only when a real URL is set
-    BODY="{\"engine\": \"${ENGINE}\", \"start_url\": \"${START_URL}\"}"
-    echo "[autostart-browser] opening headed ${ENGINE} at ${START_URL}"
+    BODY="{\"engine\": \"${ENGINE}\", \"window_mode\": \"${WINDOW_MODE}\", \"start_url\": \"${START_URL}\"}"
+    echo "[autostart-browser] opening headed ${ENGINE} (${WINDOW_MODE}) at ${START_URL}"
 else
-    BODY="{\"engine\": \"${ENGINE}\"}"
-    echo "[autostart-browser] opening headed ${ENGINE} (blank page)"
+    BODY="{\"engine\": \"${ENGINE}\", \"window_mode\": \"${WINDOW_MODE}\"}"
+    echo "[autostart-browser] opening headed ${ENGINE} (${WINDOW_MODE}, blank page)"
 fi
 curl -sf -X POST "http://localhost:8000/desktop/browser" \
      -H "content-type: application/json" \
