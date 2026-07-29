@@ -675,6 +675,16 @@ jobs:
           echo "GET /vnc.html → $code"
           [ "$code" = "200" ]
 
+      - name: CA-trust oneshot ran (no CA mounted here → clean no-op, marker still written)
+        run: |
+          for i in $(seq 1 15); do
+            docker exec "$CONTAINER_NAME" test -f /tmp/ca-trust.done && break
+            sleep 2
+          done
+          docker exec "$CONTAINER_NAME" test -f /tmp/ca-trust.done                       # must ALWAYS finish — a hung ca-trust would stall the browser autostart behind it
+          docker exec "$CONTAINER_NAME" sh -c 'command -v certutil >/dev/null'           # libnss3-tools present for the real (CA-mounted) path
+          docker logs "$CONTAINER_NAME" 2>&1 | grep -i 'ca-trust' | tail -5 || true
+
       - name: All supervised programs running
         run: |
           docker exec "$CONTAINER_NAME" supervisorctl status || true

@@ -224,6 +224,8 @@ _BROWSER_SERVICE = """\
       - SG_PLAYWRIGHT__AUTOSTART_BROWSER={engine}
       - FAST_API__AUTH__API_KEY__NAME=${{FAST_API__AUTH__API_KEY__NAME:-x-api-key}}
       - FAST_API__AUTH__API_KEY__VALUE=${{FAST_API__AUTH__API_KEY__VALUE}}
+    volumes:
+      - ${{CONTENT_PROXY__CA_DIR:-./certs}}:/certs:ro
     networks:
       - cp-net
     restart: unless-stopped

@@ -38,6 +38,8 @@ RUN apt-get update \
         novnc \
         websockify \
         supervisor \
+        libnss3-tools \
+        ca-certificates \
  && rm -rf /var/lib/apt/lists/*
 
 # DISPLAY_MODE=vnc: the service (P2) reads it to default headed launches; the
@@ -48,7 +50,8 @@ ENV DISPLAY=:99 \
 
 COPY sg_compute_specs/playwright/vnc/supervisord.conf   /etc/supervisor/conf.d/sg-playwright-vnc.conf
 COPY sg_compute_specs/playwright/vnc/autostart-browser.sh /usr/local/bin/autostart-browser.sh
-RUN chmod +x /usr/local/bin/autostart-browser.sh
+COPY sg_compute_specs/playwright/vnc/install-ca-trust.sh  /usr/local/bin/install-ca-trust.sh
+RUN chmod +x /usr/local/bin/autostart-browser.sh /usr/local/bin/install-ca-trust.sh
 
 EXPOSE 8000 6080
 

@@ -21,6 +21,11 @@ WINDOW_MODE="${SG_PLAYWRIGHT__AUTOSTART_WINDOW_MODE:-maximised}"                
 KEY_NAME="${FAST_API__AUTH__API_KEY__NAME:-X-API-Key}"
 KEY_VALUE="${FAST_API__AUTH__API_KEY__VALUE:-}"
 
+for i in $(seq 1 40); do                                                             # let ca-trust finish first so the FIRST browser already trusts the proxy CA
+    [ -f /tmp/ca-trust.done ] && break
+    sleep 2
+done
+
 for i in $(seq 1 30); do                                                             # -H auth: health may be key-gated depending on deploy config
     curl -sf -o /dev/null -H "${KEY_NAME}: ${KEY_VALUE}" "http://localhost:8000/health/status" && break
     sleep 2

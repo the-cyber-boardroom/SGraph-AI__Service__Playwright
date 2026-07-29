@@ -141,7 +141,7 @@ class test_browser_fleet(TestCase):
         assert block.count('SG_PLAYWRIGHT__IGNORE_HTTPS_ERRORS=true') == 2           # mitmproxy CA handled in-service (no certutil)
         assert block.count('SG_PLAYWRIGHT__AUTOSTART_BROWSER=chromium') == 2         # headed browser opens on the noVNC desktop at boot
         assert '${FAST_API__AUTH__API_KEY__VALUE}' in block                          # same access token as cp-sg-playwright
-        assert 'volumes:' not in block                                               # ephemeral — nothing persists
+        assert block.count('/certs:ro') == 2                                         # mitmproxy CA mounted read-only → install-ca-trust gives a padlock instead of "Not secure"
         assert 'ports:'   not in block                                               # :6080 never published — the edge fronts it
         assert block.count('- mitmproxy-int') == 2                                   # depends_on the internal proxy
 
